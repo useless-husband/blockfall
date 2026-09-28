@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<meta name="description" content="Blockfall：照現代規則做的方塊落下遊戲，含 SRS 旋轉、7-bag、Hold、T-Spin 與重播。">
+<title>Blockfall</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='4' y='4' width='11' height='11' fill='%23e69f00'/%3E%3Crect x='17' y='4' width='11' height='11' fill='%2356b4e9'/%3E%3Crect x='4' y='17' width='11' height='11' fill='%23009e73'/%3E%3Crect x='17' y='17' width='11' height='11' fill='%23cc79a7'/%3E%3C/svg%3E">
+<script>
+// Resolve the theme before first paint so there is no flash. src/app.js keeps it in sync.
+(function () {
+  var t = 'auto', c = false;
+  try {
+    var s = JSON.parse(localStorage.getItem('blockfall.settings.v1') || '{}');
+    if (s.theme === 'light' || s.theme === 'dark') t = s.theme;
+    c = s.contrast === true;
+  } catch (e) {}
+  var dark = t === 'dark' || (t === 'auto' && window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches);
+  document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+  if (c) document.documentElement.dataset.contrast = 'high';
+})();
+</script>
+<link rel="stylesheet" href="style.css">
+<script type="module" src="src/app.js"></script>
+</head>
+<body>
+<header class="bar">
+  <h1>Blockfall</h1>
+  <div class="bar-actions">
+    <button type="button" id="btn-pause">暫停</button>
+    <button type="button" id="btn-sound" aria-pressed="true">音效：開</button>
+    <button type="button" id="btn-settings">設定</button>
+  </div>
+</header>
+
+<main id="game">
+  <div class="col col-left">
+    <section class="box box-hold" aria-label="暫存">
+      <h2>暫存</h2>
+      <canvas id="c-hold" width="10" height="10"></canvas>
+    </section>
+    <section class="box box-stats" aria-label="統計">
+      <dl class="stats">
+        <div><dt>分數</dt><dd id="st-score">0</dd></div>
+        <div><dt>行數</dt><dd id="st-lines">0</dd></div>
+        <div><dt>等級</dt><dd id="st-level">1</dd></div>
+        <div><dt id="st-time-label">時間</dt><dd id="st-time">0:00.00</dd></div>
+      </dl>
+    </section>
+  </div>
+
+  <div class="stage" id="stage">
+    <canvas id="c-board" width="10" height="10" aria-label="遊戲盤面"></canvas>
+    <div id="banner" class="banner" aria-live="polite"></div>
+    <div id="badge" class="badge" hidden></div>
+
+    <div id="overlay" class="overlay">
+      <section id="ov-menu" class="card">
+        <h2>選擇模式</h2>
+        <div id="mode-list" class="mode-list" role="radiogroup" aria-label="模式"></div>
+        <div class="row">
+          <button type="button" id="btn-start" class="primary">開始</button>
+        </div>
+        <div class="row row-small">
+          <button type="button" id="btn-replay-last">重播上一局</button>
+          <button type="button" id="btn-import">匯入重播</button>
+        </div>
+        <p class="hint" id="menu-hint">按 Enter 開始。按鍵可以在「設定」裡修改。</p>
+      </section>
+
+      <section id="ov-pause" class="card" hidden>
+        <h2>已暫停</h2>
+        <div class="col-buttons">
+          <button type="button" id="btn-resume" class="primary">繼續</button>
+          <button type="button" id="btn-restart">重新開始</button>
+          <button type="button" id="btn-quit">結束本局</button>
+        </div>
+      </section>
+
+      <section id="ov-result" class="card" hidden>
+        <h2 id="res-title">遊戲結束</h2>
+        <p id="res-record" class="record" hidden>新紀錄</p>
+        <dl class="result" id="res-list"></dl>
+        <div class="col-buttons">
+          <button type="button" id="btn-again" class="primary">再玩一次</button>
+          <button type="button" id="btn-watch">重播這局</button>
+          <button type="button" id="btn-export">匯出重播檔</button>
+          <button type="button" id="btn-menu">回選單</button>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <div class="col col-right">
+    <section class="box box-next" aria-label="接下來的方塊">
+      <h2>下一個</h2>
+      <canvas id="c-next" width="10" height="10"></canvas>
+    </section>
+    <section class="box box-info" aria-label="狀態">
+      <ul class="info">
+        <li><span>目標</span><b id="in-goal">—</b></li>
+        <li><span>連擊</span><b id="in-combo">—</b></li>
+        <li><span>Back-to-Back</span><b id="in-b2b">—</b></li>
+        <li><span>最佳</span><b id="in-best">—</b></li>
+      </ul>
+    </section>
+    <section class="box box-keys" aria-label="操作說明">
+      <h2>操作</h2>
+      <ul class="keys" id="keys-help"></ul>
+    </section>
+  </div>
+
+  <div id="replaybar" class="replaybar" hidden>
+    <button type="button" id="rp-toggle">暫停</button>
+    <span class="speeds" role="group" aria-label="播放速度">
+      <button type="button" data-speed="0.5">0.5×</button>
+      <button type="button" data-speed="1" class="on">1×</button>
+      <button type="button" data-speed="2">2×</button>
+      <button type="button" data-speed="4">4×</button>
+      <button type="button" data-speed="8">8×</button>
+    </span>
+    <span id="rp-progress" class="progress">0%</span>
+    <button type="button" id="rp-exit">結束重播</button>
+  </div>
+
+  <div id="touchbar" class="touchbar">
+    <button type="button" data-act="hold">暫存</button>
+    <button type="button" data-act="rotateCCW" aria-label="逆時針旋轉">逆轉 ↺</button>
+    <button type="button" data-act="rotateCW" aria-label="順時針旋轉">順轉 ↻</button>
+    <button type="button" data-act="pause">暫停</button>
+  </div>
+</main>
+
+<footer class="foot">
+  <span>Blockfall 是獨立的方塊落下遊戲，與 Tetris 商標及其權利人無關。</span>
+</footer>
+
+<input type="file" id="file-import" accept="application/json,.json" hidden>
+
+<dialog id="settings" aria-labelledby="set-title">
+  <form method="dialog" class="settings-form">
+    <h2 id="set-title">設定</h2>
+
+    <fieldset>
+      <legend>操作手感（下一局生效）</legend>
+      <label class="field">
+        <span>DAS 長按延遲</span>
+        <input type="range" id="set-das" min="40" max="400" step="1">
+        <output id="out-das"></output>
+      </label>
+      <label class="field">
+        <span>ARR 連續移動間隔</span>
+        <input type="range" id="set-arr" min="0" max="100" step="1">
+        <output id="out-arr"></output>
+      </label>
+      <label class="field">
+        <span>軟降速度</span>
+        <select id="set-soft">
+          <option value="5">5 倍</option>
+          <option value="10">10 倍</option>
+          <option value="20">20 倍</option>
+          <option value="40">40 倍</option>
+          <option value="0">瞬間落底</option>
+        </select>
+      </label>
+      <label class="check"><input type="checkbox" id="set-180"> 允許 180 度旋轉</label>
+    </fieldset>
+
+    <fieldset>
+      <legend>畫面與聲音</legend>
+      <label class="field">
+        <span>主題</span>
+        <select id="set-theme">
+          <option value="auto">跟隨系統</option>
+          <option value="light">淺色</option>
+          <option value="dark">深色</option>
+        </select>
+      </label>
+      <label class="check"><input type="checkbox" id="set-contrast"> 高對比模式</label>
+      <label class="check"><input type="checkbox" id="set-patterns"> 方塊圖樣（色盲輔助）</label>
+      <label class="check"><input type="checkbox" id="set-ghost"> 顯示落點影子</label>
+      <label class="check"><input type="checkbox" id="set-sound"> 音效</label>
+    </fieldset>
+
+    <fieldset>
+      <legend>按鍵設定</legend>
+      <p class="hint">點一下按鈕，再按想要的鍵。按 Esc 取消。</p>
+      <div id="key-table" class="key-table"></div>
+      <button type="button" id="keys-reset">還原預設按鍵</button>
+    </fieldset>
+
+    <div class="row">
+      <button type="submit" class="primary" id="set-close">完成</button>
+    </div>
+  </form>
+</dialog>
+</body>
+</html>
