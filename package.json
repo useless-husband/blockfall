@@ -1,0 +1,13 @@
+{
+  "name": "blockfall",
+  "version": "1.0.0",
+  "description": "A falling-block puzzle game following modern guideline rules (SRS, 7-bag, hold, T-Spin), in plain JavaScript.",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "test": "node --test \"test/*.test.js\"",
+    "serve": "python3 -m http.server 8000"
+  },
+  "engines": { "node": ">=22" }
+}
